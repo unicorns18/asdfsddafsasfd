@@ -6,7 +6,9 @@ class TestModerationExtension(ModerationExtension):
     """Test version of ModerationExtension that doesn't use command decorators"""
     async def warn(self, ctx, user, reason):
         # Get and update warns/instances
-        warns = int(self.warndb.redis.get(user.id) or 0) + 1
+        warns = int(self.warndb.get(str(user.id)) or 0) + 1
+        self.warndb.set(str(user.id), warns)
+        instances = int(self.instancedb.get(str(user.id)) or 0)
         self.warndb.redis.set(user.id, warns)
         instances = int(self.instancedb.redis.get(user.id) or 0)
 
