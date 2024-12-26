@@ -66,7 +66,36 @@ class EmbedExtension(Extension):
         self.db = RedisDB(db=122)
         self.db_whitelist = RedisDB(db=1)
         self.embed_limit = 100
+        self.WHITELIST_KEY = "whitelisted_users"
     
+    async def get(self, key):
+        """Get a value from Redis and parse it as JSON."""
+        try:
+            value = self.db.redis.get(key)
+            if value:
+                import json
+                return json.loads(value.decode('utf-8'))
+            return None
+        except Exception as e:
+            print(f"Error getting key {key} from Redis: {e}")
+            return None
+
+    def set(self, key, value):
+        """Set a value in Redis after converting it to JSON."""
+        try:
+            import json
+            self.db.redis.set(key, json.dumps(value))
+        except Exception as e:
+            print(f"Error setting key {key} in Redis: {e}")
+
+    def list_keys(self, pattern):
+        """List all keys matching the given pattern."""
+        try:
+            return [key.decode('utf-8') for key in self.db.redis.scan_iter(pattern)]
+        except Exception as e:
+            print(f"Error listing keys with pattern {pattern}: {e}")
+            return []
+
     async def is_user_whitelisted(self, user_id):
         if str(user_id) in [str(id) for id in self.FORCE_OVERRIDE_USER_ID]: return True
         return self.db_whitelist.redis.sismember(self.WHITELIST_KEY, str(user_id))
@@ -186,7 +215,7 @@ class EmbedExtension(Extension):
             )
             return            
         key = self.get_embed_key(str(ctx.author.id), name)
-        existing_embed = await self.db.get(key)
+        existing_embed = await self.get(key)
         if existing_embed:
             await ctx.send(
                 f"An embed template with the name '{name}' already exists. Please choose a different name.",
@@ -209,7 +238,6 @@ class EmbedExtension(Extension):
             text="Example Footer • You can add timestamps too!",
             icon_url="https://img.freepik.com/premium-photo/cute-anime-girl-wallpaper_776894-106686.jpg"
         )
-        # embed.timestamp = datetime.now()
         buttons = self.get_embed_buttons(name)
         await ctx.send(
             embed=embed,
@@ -232,7 +260,7 @@ class EmbedExtension(Extension):
             return
         await ctx.defer(ephemeral=False)
         key = self.get_embed_key(str(ctx.author.id), name)
-        embed_data = await self.db.get(key)
+        embed_data = await self.get(key)
         if not embed_data:
             await ctx.send(f"No saved embed template found with name '{name}'", ephemeral=True)
             return
@@ -250,14 +278,14 @@ class EmbedExtension(Extension):
             return
         await ctx.defer(ephemeral=True)
         pattern = f"embed:{ctx.author.id}:*"
-        embed_keys = self.db.list_keys(pattern)
+        embed_keys = self.list_keys(pattern)
         if not embed_keys:
             await ctx.send("No saved embed templates found.", ephemeral=True)
             return
         embeds = []
         for key in embed_keys:
             name = key.split(":")[-1]
-            embed_data = await self.db.get(key)
+            embed_data = await self.get(key)
             if embed_data:
                 embed = self.deserialize_embed(embed_data)
                 embed._template_name = name
@@ -266,7 +294,7 @@ class EmbedExtension(Extension):
             current_embed = embeds[paginator.page_index]
             embed_name = current_embed._template_name
             key = self.get_embed_key(str(ctx.author.id), embed_name)
-            embed_data = await self.db.get(key)
+            embed_data = await self.get(key)
             if embed_data:
                 embed = self.deserialize_embed(embed_data)
                 await ctx.send(embed=embed, components=self.get_embed_buttons(embed_name))
@@ -291,12 +319,12 @@ class EmbedExtension(Extension):
             await ctx.send("You don't have permission to flush the embed database.", ephemeral=True)
             return
         pattern = f"embed:{ctx.author.id}:*"
-        embed_keys = self.db.list_keys(pattern)
+        embed_keys = self.list_keys(pattern)
         if not embed_keys:
             await ctx.send("No saved embed templates to flush.", ephemeral=True)
             return
         for key in embed_keys:
-            self.db.delete(key)
+            self.db.redis.delete(key)
         await ctx.send(f"Successfully deleted {len(embed_keys)} embed templates.", ephemeral=True)
 
     @slash_command(
@@ -315,7 +343,7 @@ class EmbedExtension(Extension):
             return
         await ctx.defer(ephemeral=False)
         key = self.get_embed_key(str(ctx.author.id), name)
-        embed_data = await self.db.get(key)
+        embed_data = await self.get(key)
         if not embed_data:
             await ctx.send(f"No embed template found with name '{name}'", ephemeral=True)
             return
@@ -521,7 +549,7 @@ class EmbedExtension(Extension):
             await ctx.send("Invalid event type. Use 'on_join' or 'none'.", ephemeral=True)
             return
         key = self.get_embed_key(str(ctx.author.id), embed_name)
-        embed_data = await self.db.get(key)
+        embed_data = await self.get(key)
         if not embed_data:
             message = ctx.message
             if not message or not message.embeds:
@@ -531,7 +559,7 @@ class EmbedExtension(Extension):
             embed_data = self.serialize_embed(embed)
         if event_type == "none":
             if "event_config" in embed_data: del embed_data["event_config"]
-            self.db.set(key, embed_data)
+            self.set(key, embed_data)
             await ctx.send("Event registration removed. This is now a standard embed.", ephemeral=True)
             return
         try:
@@ -553,7 +581,7 @@ class EmbedExtension(Extension):
             "is_finalized": False
         }
         embed_data["event_config"] = event_data
-        self.db.set(key, embed_data)
+        self.set(key, embed_data)
         await ctx.send(f"Event registered! This embed will be sent to <#{channel_id}> when new members join.", ephemeral=True)
     
     @modal_callback(re.compile(r"embed_images_modal:(.+)"))
@@ -695,7 +723,7 @@ class EmbedExtension(Extension):
             await ctx.send("Couldn't find the embed.", ephemeral=True)
             return
         key = self.get_embed_key(str(ctx.author.id), embed_name)
-        embed_data = await self.db.get(key)
+        embed_data = await self.get(key)
         if not embed_data:
             embed_data = self.serialize_embed(embed)
         if "event_config" not in embed_data:
@@ -705,7 +733,7 @@ class EmbedExtension(Extension):
             finalize_message = "Embed finalized with event configuration!"
         else:
             finalize_message = "Embed finalized!"
-        self.db.set(key, embed_data)
+        self.set(key, embed_data)
         await message.edit(
             embed=embed,
             components=[]
@@ -726,7 +754,7 @@ class EmbedExtension(Extension):
             return
         data = self.serialize_embed(embed)
         key = self.get_embed_key(str(ctx.author.id), embed_name)
-        self.db.set(key, data)
+        self.set(key, data)
         await ctx.send(f"Embed template saved as '{embed_name}'!", ephemeral=True)
     
     @listen("member_add")
@@ -735,11 +763,11 @@ class EmbedExtension(Extension):
         member = event.member
         print(f"Member join event triggered for {member} in guild {guild_id}")
         pattern = "embed:*"
-        embed_keys = self.db.list_keys(pattern)
+        embed_keys = self.list_keys(pattern)
         print(f"Found {len(embed_keys)} total embed keys")
         for key in embed_keys:
             try:
-                embed_data = await self.db.get(key)
+                embed_data = await self.get(key)
                 if not embed_data:
                     continue
                 print(f"Checking embed key: {key}")
