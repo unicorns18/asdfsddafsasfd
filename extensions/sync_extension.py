@@ -88,19 +88,28 @@ class SyncBlacklistsExtension(Extension):
                 footer=f"Blacklist synced by {ctx.author.display_name}",
                 timestamp=datetime.datetime.now().isoformat(),
             )
-            view_images_link_button = Button(
-                style=ButtonStyle.LINK,
-                label="View Images",
-                url=user_info.get('proof_link', 'N/A'),
-            )
+
+            buttons = []
+            proof_link = user_info.get('proof_link')
+            if proof_link and proof_link != 'N/A':
+                view_images_link_button = Button(
+                    style=ButtonStyle.LINK,
+                    label="View Images",
+                    url=proof_link
+                )
+                buttons.append(view_images_link_button)
+            
             view_images_direct_button = Button(
                 style=ButtonStyle.PRIMARY,
                 label="View Images Directly",
-                custom_id="view_images_direct",
+                custom_id="view_images_direct"
             )
-            action_row = interactions.ActionRow(view_images_link_button, view_images_direct_button)
+            buttons.append(view_images_direct_button)
+            
+            action_row = interactions.ActionRow(*buttons)
+
             for blacklist_channel in blacklist_channels:
-                await blacklist_channel.send(embed=embed, components=[action_row], ephemeral=True)
+                await blacklist_channel.send(embed=embed, components=[action_row])
         
         if blacklist_channels:
             first_blacklist_channel_id = blacklist_channels[0].id

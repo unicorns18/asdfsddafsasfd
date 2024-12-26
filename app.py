@@ -3,15 +3,18 @@ from interactions import Client
 from utils import logutils
 import interactions
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logutils.CustomLogger(__name__)
 
-TOKEN = "MTMxNjYwNjc2NTkwMjg1NjM2NA.GJN7qe.Ue1FT3hdkJQ8aBRqZcF42R-cnHnhBqQVxRx_0U"
 DEBUG = True
+TOKEN = os.getenv("MAIN_BOT_TOKEN")
+DEBUG_TOKEN = os.getenv("DEBUG_BOT_TOKEN")
 
 client = Client(
-    # token="MTMxNjYwNjc2NTkwMjg1NjM2NA.GJN7qe.Ue1FT3hdkJQ8aBRqZcF42R-cnHnhBqQVxRx_0U",
-    token=TOKEN if not DEBUG else "MTI3MjQ2NjE1NzIyMzQxNTg2Mg.GH41lQ.wTb3JQoWQH9Xi161CABKxYCf9H_9oKUED7iEP0",
+    token=TOKEN if not DEBUG else DEBUG_TOKEN,
     intents=interactions.Intents.ALL,
     activity=interactions.Activity(
         name="mew", type=interactions.ActivityType.PLAYING

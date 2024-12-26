@@ -1,4 +1,4 @@
-from interactions import Button, ButtonStyle, ComponentContext, Embed, EmbedField, Extension, Color
+from interactions import Button, ButtonStyle, ComponentContext, Embed, EmbedField, Extension, Color, OptionType
 import interactions
 
 class UtilityExtension(Extension):
@@ -54,3 +54,16 @@ class UtilityExtension(Extension):
         print(self.roleid, self.logToChannel, self.logChannel)
         print("test branch shit")
         await ctx.send(f"Server ID: {server_id}\nRole ID: {self.roleid}\nLog to Channel: {self.logToChannel}\nLog Channel: {self.logChannel}", ephemeral=True)
+
+    @interactions.slash_command(
+        name="send_dm",
+        description="Send a DM to a user",
+    )
+    @interactions.slash_option(
+        name="user",
+        description="The user to send the DM to",
+        opt_type=OptionType.USER,
+        required=True
+    )
+    async def send_dm(self, ctx, user: interactions.Member):
+        await user.send("Hello!")
