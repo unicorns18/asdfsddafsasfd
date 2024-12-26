@@ -195,15 +195,23 @@ class EmbedExtension(Extension):
 
     @slash_command(
         name="embed",
-        description="Manage embed templates"
+        description="Create and manage embed messages"
     )
     async def embed(self, ctx: SlashContext):
-        """Base command for embed management"""
-        await ctx.send("Please use one of the subcommands:\n- /embed create - Create a new embed\n- /embed load - Load a saved embed\n- /embed list - List all saved embeds\n- /embed edit - Edit an existing embed\n- /embed flush - Delete all saved embeds")
+        """Base command - shows help text"""
+        help_text = (
+            "Available subcommands:\n"
+            "- /embed create - Create a new embed\n"
+            "- /embed load - Load a saved embed template\n"
+            "- /embed list - List all saved embed templates\n"
+            "- /embed flush - Delete all saved embed templates\n"
+            "- /embed edit - Edit an existing embed template"
+        )
+        await ctx.send(help_text)
 
     @embed.subcommand(
         sub_cmd_name="create",
-        sub_cmd_description="Create a new embed template"
+        sub_cmd_description="Create a new embed"
     )
     @slash_option(
         name="name",
@@ -251,7 +259,7 @@ class EmbedExtension(Extension):
             embed=embed,
             components=buttons
         )
-
+    
     @embed.subcommand(
         sub_cmd_name="load",
         sub_cmd_description="Load a saved embed template"
@@ -374,8 +382,434 @@ class EmbedExtension(Extension):
             components=buttons
         )
 
-    # Keep all the existing component_callback and modal_callback methods...
-    # They don't need to change as they work with the buttons
+    @component_callback(re.compile(r"embed_basic_info:(.+)"))
+    async def embed_basic_info(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_basic_info: {embed_name}")
+        message = ctx.message
+        embed = message.embeds[0] if message.embeds else None
+        current_title = ""
+        current_description = ""
+        current_color = ""
+        if embed:
+            current_title = embed.title or ""
+            current_description = embed.description or ""
+            if embed.color: current_color = f"#{embed.color:06x}"
+        modal = Modal(
+            ShortText(
+                label="Title (type 'remove' to clear)",
+                custom_id="title",
+                required=False,
+                placeholder="Enter or 'remove'",
+                value=current_title
+            ),
+            ParagraphText(
+                label="Description (use {newline} for line breaks)",
+                custom_id="description",
+                required=False,
+                placeholder="Description",
+                value=current_description.replace("\n", "{newline}")
+            ),
+            ShortText(
+                label="Color (hex or name)",
+                custom_id="color",
+                required=False,
+                placeholder="#ff0000 or red",
+                value=current_color
+            ),
+            title="Edit Basic Info",
+            custom_id=f"embed_basic_info_modal:{embed_name}"
+        )
+        await ctx.send_modal(modal)
+    
+    @modal_callback(re.compile(r"embed_basic_info_modal:(.+)"))
+    async def embed_basic_info_modal(self, ctx: ModalContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        title = ctx.responses.get("title")
+        description = ctx.responses.get("description")
+        color = ctx.responses.get("color")
+        print(f"embed_basic_info_modal: {embed_name} {title} {description} {color}")
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return    
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        if title:
+            if title.lower() == 'remove':
+                embed.title = None
+            else:
+                embed.title = title
+        if description:
+            embed.description = description.replace("{newline}", "\n")
+        if color:
+            try:
+                embed.color = ColorConverter.from_str(color)
+            except ValueError as e:
+                await ctx.send(str(e), ephemeral=True)
+                return
+        await ctx.defer(edit_origin=True)
+        await message.edit(
+            embed=embed,
+            components=self.get_embed_buttons(embed_name)
+        )
+    
+    @component_callback(re.compile(r"embed_fields:(.+)"))
+    async def embed_fields(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_fields: {embed_name}")
+        modal = Modal(
+            ShortText(
+                label="Field Title",
+                custom_id="field_title",
+                required=True,
+            ),
+            ParagraphText(
+                label="Field Value",
+                custom_id="field_value",
+                required=True,
+                placeholder="Enter field content"
+            ),
+            ShortText(
+                label="Inline (true/false)",
+                custom_id="field_inline",
+                required=False,
+                placeholder="true or false"
+            ),
+            title="Add Field",
+            custom_id=f"embed_fields_modal:{embed_name}"
+        )
+        await ctx.send_modal(modal)
+    
+    @modal_callback(re.compile(r"embed_fields_modal:(.+)"))
+    async def embed_fields_modal(self, ctx: ModalContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        field_title = ctx.responses.get("field_title")
+        field_value = ctx.responses.get("field_value")
+        field_inline = ctx.responses.get("field_inline", "false").lower() == "true"
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return    
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        try:
+            embed.add_field(
+                name=field_title,
+                value=field_value,
+                inline=field_inline
+            )
+            await ctx.defer(edit_origin=True)
+            await message.edit(
+                embed=embed,
+                components=self.get_embed_buttons(embed_name)
+            )
+        except ValueError as e:
+            await ctx.send(f"Error adding field: {str(e)}", ephemeral=True)
 
-def setup(bot):
-    EmbedExtension(bot)
+    @component_callback(re.compile(r"embed_images:(.+)"))
+    async def embed_images(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_images: {embed_name}")
+        modal = Modal(
+            ShortText(
+                label="Main Image URL",
+                custom_id="main_image",
+                required=False,
+                placeholder="URL for main image (type 'remove' to clear)"
+            ),
+            ShortText(
+                label="Thumbnail URL",
+                custom_id="thumbnail",
+                required=False,
+                placeholder="URL for thumbnail (type 'remove' to clear)"
+            ),
+            title="Edit Images",
+            custom_id=f"embed_images_modal:{embed_name}"
+        )
+        await ctx.send_modal(modal)
+    
+    @component_callback(re.compile(r"embed_event:(.+)"))
+    async def embed_event(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_event: {embed_name}")
+        modal = Modal(
+            ShortText(
+                label="Event Type",
+                custom_id="event_type",
+                required=True,
+                placeholder="Type 'on_join' or 'none'",
+                value="none"
+            ),
+            ShortText(
+                label="Channel ID (only for on_join)",
+                custom_id="channel_id",
+                required=False,
+                placeholder="Enter channel ID (leave empty for current channel)"
+            ),
+            title="Register Event",
+            custom_id=f"embed_event_modal:{embed_name}"
+        )
+        await ctx.send_modal(modal)
+    
+    @modal_callback(re.compile(r"embed_event_modal:(.+)"))
+    async def embed_event_modal(self, ctx: ModalContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        event_type = ctx.responses.get("event_type").lower()
+        channel_id = ctx.responses.get("channel_id")
+        if event_type not in ["on_join", "none"]:
+            await ctx.send("Invalid event type. Use 'on_join' or 'none'.", ephemeral=True)
+            return
+        key = self.get_embed_key(str(ctx.author.id), embed_name)
+        embed_data = await self.get(key)
+        if not embed_data:
+            message = ctx.message
+            if not message or not message.embeds:
+                await ctx.send("Couldn't find the embed. Please try again.", ephemeral=True)
+                return
+            embed = message.embeds[0]
+            embed_data = self.serialize_embed(embed)
+        if event_type == "none":
+            if "event_config" in embed_data: del embed_data["event_config"]
+            self.set(key, embed_data)
+            await ctx.send("Event registration removed. This is now a standard embed.", ephemeral=True)
+            return
+        try:
+            if channel_id:
+                channel_id = int(channel_id)
+                channel = await ctx.guild.fetch_channel(channel_id)
+            else:
+                channel = ctx.channel
+                channel_id = channel.id
+            if not channel:
+                raise ValueError("Channel not found")
+        except (ValueError, TypeError):
+            await ctx.send("Invalid channel ID. Please provide a valid channel ID.", ephemeral=True)
+            return
+        event_data = {
+            "event_type": event_type,
+            "channel_id": channel_id,
+            "guild_id": ctx.guild_id,
+            "is_finalized": False
+        }
+        embed_data["event_config"] = event_data
+        self.set(key, embed_data)
+        await ctx.send(f"Event registered! This embed will be sent to <#{channel_id}> when new members join.", ephemeral=True)
+    
+    @modal_callback(re.compile(r"embed_images_modal:(.+)"))
+    async def embed_images_modal(self, ctx: ModalContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        main_image = ctx.responses.get("main_image")
+        thumbnail = ctx.responses.get("thumbnail")
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return    
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        if main_image:
+            if main_image.lower() == 'remove':
+                embed.set_image(None)
+            else:
+                try:
+                    embed.set_image(main_image)
+                except Exception as e:
+                    await ctx.send(f"Error setting main image: {str(e)}", ephemeral=True)
+                    return
+        if thumbnail:
+            if thumbnail.lower() == 'remove':
+                embed.thumbnail = None
+            else:
+                try:
+                    embed.set_thumbnail(thumbnail)
+                except Exception as e:
+                    await ctx.send(f"Error setting thumbnail: {str(e)}", ephemeral=True)
+                    return
+        
+        await ctx.defer(edit_origin=True)
+        await message.edit(
+            embed=embed,
+            components=self.get_embed_buttons(embed_name)
+        )
+    
+    @component_callback(re.compile(r"embed_author_footer:(.+)"))
+    async def embed_author_footer(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_author_footer: {embed_name}")
+        modal = Modal(
+            ShortText(
+                label="Author Name",
+                custom_id="author_name",
+                required=False,
+                placeholder="Author name (type 'remove' to clear)"
+            ),
+            ShortText(
+                label="Author URL",
+                custom_id="author_url",
+                required=False,
+                placeholder="URL for author name to link to"
+            ),
+            ShortText(
+                label="Author Icon URL",
+                custom_id="author_icon",
+                required=False,
+                placeholder="URL for author icon"
+            ),
+            ShortText(
+                label="Footer Text",
+                custom_id="footer_text",
+                required=False,
+                placeholder="Footer text (type 'remove' to clear)"
+            ),
+            ShortText(
+                label="Footer Icon URL",
+                custom_id="footer_icon",
+                required=False,
+                placeholder="URL for footer icon"
+            ),
+            title="Edit Author/Footer",
+            custom_id=f"embed_author_footer_modal:{embed_name}"
+        )
+        await ctx.send_modal(modal)
+    
+    @modal_callback(re.compile(r"embed_author_footer_modal:(.+)"))
+    async def embed_author_footer_modal(self, ctx: ModalContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        author_name = ctx.responses.get("author_name")
+        author_url = ctx.responses.get("author_url")
+        author_icon = ctx.responses.get("author_icon")
+        footer_text = ctx.responses.get("footer_text")
+        footer_icon = ctx.responses.get("footer_icon")
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        if author_name:
+            if author_name.lower() == 'remove':
+                embed.author = None
+            else:
+                try:
+                    embed.set_author(
+                        name=author_name,
+                        url=author_url if author_url else None,
+                        icon_url=author_icon if author_icon else None
+                    )
+                except Exception as e:
+                    await ctx.send(f"Error setting author: {str(e)}", ephemeral=True)
+                    return
+        if footer_text:
+            if footer_text.lower() == 'remove':
+                embed.footer = None
+            else:
+                try:
+                    embed.set_footer(
+                        text=footer_text,
+                        icon_url=footer_icon if footer_icon else None
+                    )
+                except Exception as e:
+                    await ctx.send(f"Error setting footer: {str(e)}", ephemeral=True)
+                    return
+        
+        await ctx.defer(edit_origin=True)
+        await message.edit(
+            embed=embed,
+            components=self.get_embed_buttons(embed_name)
+        )
+    
+    @component_callback(re.compile(r"embed_finalize:(.+)"))
+    async def embed_finalize(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_finalize: {embed_name}")
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        key = self.get_embed_key(str(ctx.author.id), embed_name)
+        embed_data = await self.get(key)
+        if not embed_data:
+            embed_data = self.serialize_embed(embed)
+        if "event_config" not in embed_data:
+            embed_data["event_config"] = None
+        if embed_data["event_config"]:
+            embed_data["event_config"]["is_finalized"] = True
+            finalize_message = "Embed finalized with event configuration!"
+        else:
+            finalize_message = "Embed finalized!"
+        self.set(key, embed_data)
+        await message.edit(
+            embed=embed,
+            components=[]
+        )
+        await ctx.send(finalize_message, ephemeral=True)
+    
+    @component_callback(re.compile(r"embed_save:(.+)"))
+    async def embed_save(self, ctx: ComponentContext):
+        embed_name = ctx.custom_id.split(":")[1]
+        print(f"embed_save: {embed_name}")
+        message = ctx.message
+        if not message:
+            await ctx.send("Couldn't find the original message.", ephemeral=True)
+            return
+        embed = message.embeds[0] if message.embeds else None
+        if not embed:
+            await ctx.send("Couldn't find the embed.", ephemeral=True)
+            return
+        data = self.serialize_embed(embed)
+        key = self.get_embed_key(str(ctx.author.id), embed_name)
+        self.set(key, data)
+        await ctx.send(f"Embed template saved as '{embed_name}'!", ephemeral=True)
+    
+    @listen("member_add")
+    async def on_member_join(self, event):
+        guild_id = event.guild.id
+        member = event.member
+        print(f"Member join event triggered for {member} in guild {guild_id}")
+        pattern = "embed:*"
+        embed_keys = self.list_keys(pattern)
+        print(f"Found {len(embed_keys)} total embed keys")
+        for key in embed_keys:
+            try:
+                embed_data = await self.get(key)
+                if not embed_data:
+                    continue
+                print(f"Checking embed key: {key}")
+                print(f"Event config: {embed_data.get('event_config')}")
+                if not embed_data or "event_config" not in embed_data or embed_data["event_config"] is None:
+                    continue
+                event_config = embed_data["event_config"]
+                print(f"Event config details:")
+                print(f"- is_finalized: {event_config.get('is_finalized')}")
+                print(f"- event_type: {event_config.get('event_type')}")
+                print(f"- guild_id: {event_config.get('guild_id')} (current: {guild_id})")
+                if (isinstance(event_config, dict) and
+                    event_config.get("is_finalized", False) and 
+                    event_config.get("event_type") == "on_join" and 
+                    str(event_config.get("guild_id")) == str(guild_id)):
+                    print(f"Found matching welcome embed! Attempting to send...")
+                    embed = self.deserialize_embed(embed_data)
+                    channel = await self.bot.fetch_channel(event_config["channel_id"])
+                    if channel:
+                        await channel.send(
+                            content=f"Welcome {member.mention}!",
+                            embed=embed
+                        )
+                        print(f"Successfully sent welcome message to channel {channel.id}")
+                    else:
+                        print(f"Could not find channel with ID {event_config['channel_id']}")
+            except Exception as e:
+                print(f"Error processing embed key {key}: {str(e)}")
+                continue
