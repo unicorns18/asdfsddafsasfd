@@ -9,7 +9,7 @@ load_dotenv()
 
 logger = logutils.CustomLogger(__name__)
 
-DEBUG = True
+DEBUG = False
 TOKEN = os.getenv("MAIN_BOT_TOKEN")
 DEBUG_TOKEN = os.getenv("DEBUG_BOT_TOKEN")
 
