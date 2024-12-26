@@ -88,7 +88,11 @@ class ModerationExtension(Extension):
 
         try:
             await user.send(embed=dm_embed)
-        except:
+        except discord.errors.Forbidden:
+            # User has DMs disabled
+            pass
+        except discord.errors.HTTPException as e:
+            logger.warning(f"Failed to send DM to user {user.id}: {e}")
             pass
 
         # Handle timeout if user reaches 3 warnings
