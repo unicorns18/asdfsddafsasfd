@@ -62,7 +62,7 @@ class ModerationExtension(Extension):
             return
 
         # Get and update warns/instances
-        warns = int(self.warndb.redis.get(user.id) or 0) + 1
+        warns = int(self.warndb.get(user.id) or 0) + 1
         self.warndb.redis.set(user.id, warns)
         instances = int(self.instancedb.redis.get(user.id) or 0)
 
