@@ -1,4 +1,5 @@
 import pytest
+import datetime
 from unittest import mock
 from unittest.mock import Mock, AsyncMock
 from extensions.moderation_extension import ModerationExtension
@@ -15,6 +16,11 @@ class TestModerationExtension(ModerationExtension):
             warns = int(self.warndb.get(str(user.id)) or 0) + 1
             self.warndb.set(str(user.id), warns)
             instances = int(self.instancedb.get(str(user.id)) or 0)
+            
+            # Store warning reason with timestamp
+            warn_reasons_key = self._get_warn_reasons_key(user.id)
+            timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            self.warndb.rpush(warn_reasons_key, f"{timestamp}: {reason}")
 
             # Handle timeout if user reaches 3 warnings
             if warns >= 3:
@@ -53,6 +59,11 @@ class TestModerationExtension(ModerationExtension):
         else: warns = int(warns)
         if instances is None: instances = 0
         else: instances = int(instances)
+        
+        # Get warning reasons
+        warn_reasons_key = self._get_warn_reasons_key(user.id)
+        reasons = self.warndb.lrange(warn_reasons_key, 0, -1)
+        
         await ctx.send(f"User has {warns} warnings")
 
     async def clearwarns(self, ctx, user):
@@ -61,6 +72,7 @@ class TestModerationExtension(ModerationExtension):
 
         self.warndb.delete(str(user.id))
         self.instancedb.delete(str(user.id))
+        self.warndb.delete(self._get_warn_reasons_key(user.id))
         await ctx.send("Warnings cleared")
 
 @pytest.fixture
@@ -104,23 +116,38 @@ async def test_warn_user_redis_interaction(extension, mock_ctx, mock_user):
     # Test warning a user
     await extension.warn(mock_ctx, mock_user, "Test reason")
 
-    # Verify Redis interactions
+    # Verify Redis interactions for warning count
     mock_redis.get.assert_called_with(str(mock_user.id))
     mock_redis.set.assert_called_with(str(mock_user.id), 1)
+    
+    # Verify Redis interactions for warning reason
+    warn_reasons_key = extension._get_warn_reasons_key(mock_user.id)
+    mock_redis.rpush.assert_called_once()
+    args = mock_redis.rpush.call_args[0]
+    assert args[0] == warn_reasons_key
+    assert "Test reason" in args[1]  # Timestamp makes exact match difficult
 
 @pytest.mark.asyncio
 async def test_warns_command_redis_interaction(extension, mock_ctx, mock_user):
     # Setup mock redis instance
     mock_redis = Mock()
     mock_redis.get.return_value = b"2"  # 2 warnings
+    mock_redis.lrange.return_value = [
+        b"2024-01-01 12:00:00 UTC: First warning",
+        b"2024-01-01 13:00:00 UTC: Second warning"
+    ]
     extension.warndb.redis = mock_redis
     extension.instancedb.redis = mock_redis
 
     # Test checking warnings
     await extension.warns(mock_ctx, mock_user)
 
-    # Verify Redis interactions
+    # Verify Redis interactions for warning count
     mock_redis.get.assert_called_with(str(mock_user.id))
+    
+    # Verify Redis interactions for warning reasons
+    warn_reasons_key = extension._get_warn_reasons_key(mock_user.id)
+    mock_redis.lrange.assert_called_with(warn_reasons_key, 0, -1)
 
 @pytest.mark.asyncio
 async def test_clearwarns_command_redis_interaction(extension, mock_ctx, mock_user):
@@ -133,7 +160,8 @@ async def test_clearwarns_command_redis_interaction(extension, mock_ctx, mock_us
     await extension.clearwarns(mock_ctx, mock_user)
 
     # Verify Redis interactions
-    mock_redis.delete.assert_called_with(str(mock_user.id))
+    mock_redis.delete.assert_any_call(str(mock_user.id))
+    mock_redis.delete.assert_any_call(extension._get_warn_reasons_key(mock_user.id))
 
 @pytest.mark.asyncio
 async def test_timeout_after_three_warnings(extension, mock_ctx, mock_user):

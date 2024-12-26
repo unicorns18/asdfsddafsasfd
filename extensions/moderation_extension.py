@@ -14,6 +14,10 @@ class ModerationExtension(Extension):
         self.TIMEOUT_FIRST_INSTANCE = datetime.timedelta(minutes=5)
         self.TIMEOUT_SECOND_INSTANCE = datetime.timedelta(hours=1)
         self.TIMEOUT_THIRD_INSTANCE = datetime.timedelta(days=1)
+        
+    def _get_warn_reasons_key(self, user_id):
+        """Helper method to get the Redis key for storing warning reasons"""
+        return f"warn_reasons:{user_id}"
 
     async def is_user_whitelisted(self, user_id):
         if str(user_id) in self.FORCE_OVERRIDE_USER_ID:
@@ -65,6 +69,11 @@ class ModerationExtension(Extension):
         warns = int(self.warndb.get(str(user.id)) or 0) + 1
         self.warndb.set(str(user.id), warns)
         instances = int(self.instancedb.get(str(user.id)) or 0)
+        
+        # Store warning reason with timestamp
+        warn_reasons_key = self._get_warn_reasons_key(user.id)
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        self.warndb.rpush(warn_reasons_key, f"{timestamp}: {reason}")
 
         # Calculate timeout info based on instances
         next_timeout = "5 minutes" if instances == 0 else "1 hour" if instances == 1 else "1 day"
@@ -216,8 +225,16 @@ class ModerationExtension(Extension):
             title=f"Warning Information for {user.display_name}",
             color=Color.random()
         )
-        warn_embed.add_field(name="Current Warn Count", value=f"{warns}")
-        warn_embed.add_field(name="Total Warning Instances", value=f"{instances}")
+        warn_embed.add_field(name="Current Warn Count", value=f"{warns}", inline=True)
+        warn_embed.add_field(name="Total Warning Instances", value=f"{instances}", inline=True)
+        
+        # Get and display warning reasons if any exist
+        warn_reasons_key = self._get_warn_reasons_key(user.id)
+        reasons = self.warndb.lrange(warn_reasons_key, 0, -1)
+        if reasons:
+            reasons_text = "\n".join(reason.decode('utf-8') for reason in reasons[-warns:])  # Only show active warnings
+            warn_embed.add_field(name="Active Warning Details", value=reasons_text, inline=False)
+        
         await ctx.send(embed=warn_embed, ephemeral=True)
     
     @moderation.subcommand(
@@ -235,6 +252,7 @@ class ModerationExtension(Extension):
             return
         self.warndb.delete(str(user.id))
         self.instancedb.delete(str(user.id))
+        self.warndb.delete(self._get_warn_reasons_key(user.id))
         clear_embed = Embed(
             title="Warnings Cleared",
             color=Color.random(),

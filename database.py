@@ -203,6 +203,27 @@ class RedisDB:
         except redis.RedisError as e:
             logger.error(f"Error deleting key {key} from the database: {e}")
             return False
+            
+    def rpush(self, key, value):
+        """
+        Appends a value to a Redis list.
+        """
+        try:
+            self.redis.rpush(key, value)
+            return True
+        except redis.RedisError as e:
+            logger.error(f"Error appending to list {key} in the database: {e}")
+            return False
+            
+    def lrange(self, key, start, end):
+        """
+        Gets a range of values from a Redis list.
+        """
+        try:
+            return self.redis.lrange(key, start, end)
+        except redis.RedisError as e:
+            logger.error(f"Error getting range from list {key} in the database: {e}")
+            return []
 
     def exists(self, user_id):
         """
