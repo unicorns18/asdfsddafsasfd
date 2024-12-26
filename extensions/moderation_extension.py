@@ -27,8 +27,22 @@ class ModerationExtension(Extension):
         return True
 
     @interactions.slash_command(
-        name="warn",
-        description="Warn a user"
+        name="moderation",
+        description="Moderation commands for managing users"
+    )
+    async def moderation(self, ctx):
+        """Base command - shows help text"""
+        help_text = (
+            "Available subcommands:\n"
+            "- /moderation warn - Warn a user\n"
+            "- /moderation warns - Check warnings for a user\n"
+            "- /moderation clearwarns - Clear all warnings for a user"
+        )
+        await ctx.send(help_text)
+
+    @moderation.subcommand(
+        sub_cmd_name="warn",
+        sub_cmd_description="Warn a user"
     )
     @interactions.slash_option(
         name="user",
@@ -175,9 +189,9 @@ class ModerationExtension(Extension):
         warn_embed.set_footer(text="At 3 warnings, the user will be timed out.")
         await ctx.send(embed=warn_embed, ephemeral=True)
     
-    @interactions.slash_command(
-        name="warns",
-        description="Check the number of warns a user has"
+    @moderation.subcommand(
+        sub_cmd_name="warns",
+        sub_cmd_description="Check the number of warns a user has"
     )
     @interactions.slash_option(
         name="user",
@@ -202,9 +216,9 @@ class ModerationExtension(Extension):
         warn_embed.add_field(name="Total Warning Instances", value=f"{instances}")
         await ctx.send(embed=warn_embed, ephemeral=True)
     
-    @interactions.slash_command(
-        name="clearwarns",
-        description="Clear the warns of a user"
+    @moderation.subcommand(
+        sub_cmd_name="clearwarns",
+        sub_cmd_description="Clear the warns of a user"
     )
     @interactions.slash_option(
         name="user",
