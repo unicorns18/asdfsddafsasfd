@@ -171,6 +171,39 @@ class RedisDB:
         last_sync_hash = self.get_last_sync_hash(guild_id)
         return last_sync_hash == current_sync_hash
 
+    def get(self, key):
+        """
+        Gets a value from Redis by key.
+        """
+        try:
+            value = self.redis.get(key)
+            return value.decode('utf-8') if value else None
+        except redis.RedisError as e:
+            logger.error(f"Error getting key {key} from the database: {e}")
+            return None
+
+    def set(self, key, value):
+        """
+        Sets a key-value pair in Redis.
+        """
+        try:
+            self.redis.set(key, value)
+            return True
+        except redis.RedisError as e:
+            logger.error(f"Error setting key {key} in the database: {e}")
+            return False
+
+    def delete(self, key):
+        """
+        Deletes a key from Redis.
+        """
+        try:
+            self.redis.delete(key)
+            return True
+        except redis.RedisError as e:
+            logger.error(f"Error deleting key {key} from the database: {e}")
+            return False
+
     def exists(self, user_id):
         """
         Checks if a user entry exists in the database.

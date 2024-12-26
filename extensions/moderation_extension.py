@@ -62,9 +62,9 @@ class ModerationExtension(Extension):
             return
 
         # Get and update warns/instances
-        warns = int(self.warndb.get(user.id) or 0) + 1
-        self.warndb.redis.set(user.id, warns)
-        instances = int(self.instancedb.redis.get(user.id) or 0)
+        warns = int(self.warndb.get(str(user.id)) or 0) + 1
+        self.warndb.set(str(user.id), warns)
+        instances = int(self.instancedb.get(str(user.id)) or 0)
 
         # Calculate timeout info based on instances
         next_timeout = "5 minutes" if instances == 0 else "1 hour" if instances == 1 else "1 day"
@@ -97,7 +97,7 @@ class ModerationExtension(Extension):
             instances += 1
             if instances > 3:
                 instances = 1
-            self.instancedb.redis.set(user.id, instances)
+            self.instancedb.set(str(user.id), instances)
 
             # Set timeout duration based on instance
             if instances == 1:
@@ -109,7 +109,7 @@ class ModerationExtension(Extension):
             elif instances == 3:
                 timeout_until = datetime.datetime.now(datetime.timezone.utc) + self.TIMEOUT_THIRD_INSTANCE
                 timeout_str = "1 day"
-                self.instancedb.redis.set(user.id, 0)
+                self.instancedb.set(str(user.id), 0)
 
             # Attempt to timeout the user in the current guild
             timeout_success = False
@@ -150,7 +150,7 @@ class ModerationExtension(Extension):
                 )
 
             # Reset warnings
-            self.warndb.redis.set(user.id, 0)
+            self.warndb.set(str(user.id), 0)
 
             # Send timeout notifications if successful
             if timeout_success:
@@ -202,8 +202,8 @@ class ModerationExtension(Extension):
     async def warns(self, ctx, user):
         if not await self.check_whitelist(ctx):
             return
-        warns = self.warndb.redis.get(user.id)
-        instances = self.instancedb.redis.get(user.id)
+        warns = self.warndb.get(str(user.id))
+        instances = self.instancedb.get(str(user.id))
         if warns is None: warns = 0
         else: warns = int(warns)
         if instances is None: instances = 0
@@ -229,8 +229,8 @@ class ModerationExtension(Extension):
     async def clearwarns(self, ctx, user):
         if not await self.check_whitelist(ctx):
             return
-        self.warndb.redis.delete(user.id)
-        self.instancedb.redis.delete(user.id)
+        self.warndb.delete(str(user.id))
+        self.instancedb.delete(str(user.id))
         clear_embed = Embed(
             title="Warnings Cleared",
             color=Color.random(),
