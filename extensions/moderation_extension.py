@@ -1,14 +1,14 @@
 import datetime
 from interactions import Button, ButtonStyle, Embed, EmbedField, Extension, Color, OptionType
 import interactions
-from redis import Redis
+from database import RedisDB
 
 class ModerationExtension(Extension):
     def __init__(self, bot):
         self.bot = bot
-        self.warndb = Redis(db=4)
-        self.instancedb = Redis(db=5)
-        self.db_whitelist = Redis(db=1)
+        self.warndb = RedisDB(db=4)
+        self.instancedb = RedisDB(db=5)
+        self.db_whitelist = RedisDB(db=1)
         self.FORCE_OVERRIDE_USER_ID = ["686107711829704725", "708812851229229208", "1259678639159644292", "1168346688969252894"]
         self.WHITELIST_KEY = "warn_whitelist"
         self.TIMEOUT_FIRST_INSTANCE = datetime.timedelta(minutes=5)
@@ -62,9 +62,9 @@ class ModerationExtension(Extension):
             return
 
         # Get and update warns/instances
-        warns = int(self.warndb.get(user.id) or 0) + 1
-        self.warndb.set(user.id, warns)
-        instances = int(self.instancedb.get(user.id) or 0)
+        warns = int(self.warndb.redis.get(user.id) or 0) + 1
+        self.warndb.redis.set(user.id, warns)
+        instances = int(self.instancedb.redis.get(user.id) or 0)
 
         # Calculate timeout info based on instances
         next_timeout = "5 minutes" if instances == 0 else "1 hour" if instances == 1 else "1 day"
@@ -97,7 +97,7 @@ class ModerationExtension(Extension):
             instances += 1
             if instances > 3:
                 instances = 1
-            self.instancedb.set(user.id, instances)
+            self.instancedb.redis.set(user.id, instances)
 
             # Set timeout duration based on instance
             if instances == 1:
@@ -109,7 +109,7 @@ class ModerationExtension(Extension):
             elif instances == 3:
                 timeout_until = datetime.datetime.now(datetime.timezone.utc) + self.TIMEOUT_THIRD_INSTANCE
                 timeout_str = "1 day"
-                self.instancedb.set(user.id, 0)
+                self.instancedb.redis.set(user.id, 0)
 
             # Attempt to timeout the user in the current guild
             timeout_success = False
@@ -150,7 +150,7 @@ class ModerationExtension(Extension):
                 )
 
             # Reset warnings
-            self.warndb.set(user.id, 0)
+            self.warndb.redis.set(user.id, 0)
 
             # Send timeout notifications if successful
             if timeout_success:
@@ -202,8 +202,8 @@ class ModerationExtension(Extension):
     async def warns(self, ctx, user):
         if not await self.check_whitelist(ctx):
             return
-        warns = self.warndb.get(user.id)
-        instances = self.instancedb.get(user.id)
+        warns = self.warndb.redis.get(user.id)
+        instances = self.instancedb.redis.get(user.id)
         if warns is None: warns = 0
         else: warns = int(warns)
         if instances is None: instances = 0
@@ -229,8 +229,8 @@ class ModerationExtension(Extension):
     async def clearwarns(self, ctx, user):
         if not await self.check_whitelist(ctx):
             return
-        self.warndb.delete(user.id)
-        self.instancedb.delete(user.id)
+        self.warndb.redis.delete(user.id)
+        self.instancedb.redis.delete(user.id)
         clear_embed = Embed(
             title="Warnings Cleared",
             color=Color.random(),
