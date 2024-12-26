@@ -43,3 +43,4 @@ if __name__ == '__main__':
             logger.error(f"Failed to load extension {extension}.", exc_info=e)
 
     client.start()
+
