@@ -25,18 +25,26 @@ from database import RedisDB
 class ColorConverter:
     @staticmethod
     def from_str(color: str) -> int:
+        if not color:
+            return 0x000000
+            
         color = color.replace(' ', '').lower()
         if color.startswith('#'):
             color = color[1:]
-            if len(color) == 3:
-                color = ''.join(c * 2 for c in color)
-            if len(color) == 6:
+        
+        if len(color) == 3:
+            color = ''.join(c * 2 for c in color)
+        if len(color) == 6:
+            try:
                 return int(color, 16)
+            except ValueError:
+                pass
 
         rgb_match = re.match(r'rgb\((\d+),(\d+),(\d+)\)', color)
         if rgb_match:
             r, g, b = map(int, rgb_match.groups())
-            return (r << 16) + (g << 8) + b
+            if all(0 <= x <= 255 for x in (r, g, b)):
+                return (r << 16) + (g << 8) + b
 
         colors = {
             'red': 0xFF0000,
@@ -175,20 +183,53 @@ class EmbedExtension(Extension):
         return data
 
     def deserialize_embed(self, data: dict) -> Embed:
-        embed = Embed(
-            title=data.get("title"),
-            description=data.get("description"),
-            color=data.get("color"),
-            url=data.get("url")
-        )
-        
-        if data.get("timestamp"): embed.timestamp = datetime.fromisoformat(data["timestamp"])
-        for field in data.get("fields", []): embed.add_field(name=field["name"], value=field["value"], inline=field["inline"])
-        if data.get("author"): embed.set_author(name=data["author"].get("name"), url=data["author"].get("url"), icon_url=data["author"].get("icon_url"))
-        if data.get("footer"): embed.set_footer(text=data["footer"].get("text"), icon_url=data["footer"].get("icon_url"))
-        if data.get("image"): embed.set_image(data["image"])
-        if data.get("thumbnail"): embed.set_thumbnail(data["thumbnail"])
-        return embed
+        if not isinstance(data, dict):
+            raise ValueError("Embed data must be a dictionary")
+            
+        try:
+            embed = Embed(
+                title=data.get("title"),
+                description=data.get("description"),
+                color=data.get("color"),
+                url=data.get("url")
+            )
+            
+            if data.get("timestamp"):
+                try:
+                    embed.timestamp = datetime.fromisoformat(data["timestamp"])
+                except ValueError:
+                    pass
+                    
+            for field in data.get("fields", []):
+                if isinstance(field, dict):
+                    embed.add_field(
+                        name=str(field.get("name", "")),
+                        value=str(field.get("value", "")),
+                        inline=bool(field.get("inline", False))
+                    )
+                    
+            if isinstance(data.get("author"), dict):
+                embed.set_author(
+                    name=str(data["author"].get("name", "")),
+                    url=data["author"].get("url"),
+                    icon_url=data["author"].get("icon_url")
+                )
+                
+            if isinstance(data.get("footer"), dict):
+                embed.set_footer(
+                    text=str(data["footer"].get("text", "")),
+                    icon_url=data["footer"].get("icon_url")
+                )
+                
+            if data.get("image"):
+                embed.set_image(str(data["image"]))
+                
+            if data.get("thumbnail"):
+                embed.set_thumbnail(str(data["thumbnail"]))
+                
+            return embed
+        except Exception as e:
+            raise ValueError(f"Failed to deserialize embed: {str(e)}")
 
     def get_embed_key(self, user_id: str, name: str) -> str:
         return f"embed:{user_id}:{name}"
@@ -298,22 +339,31 @@ class EmbedExtension(Extension):
                 embed = self.deserialize_embed(embed_data)
                 embed._template_name = name
                 embeds.append(embed)        
-        async def load_template(ctx: ComponentContext):
-            current_embed = embeds[paginator.page_index]
-            embed_name = current_embed._template_name
-            key = self.get_embed_key(str(ctx.author.id), embed_name)
-            embed_data = await self.get(key)
-            if embed_data:
-                embed = self.deserialize_embed(embed_data)
-                await ctx.send(embed=embed, components=self.get_embed_buttons(embed_name))
-            else:
-                await ctx.send("Could not load embed template.", ephemeral=True)
-            return None
         paginator = Paginator.create_from_embeds(
             self.bot,
             *embeds,
             timeout=300
         )
+        
+        async def load_template(ctx: ComponentContext):
+            try:
+                current_embed = embeds[paginator.page_index]
+                embed_name = getattr(current_embed, '_template_name', None)
+                if not embed_name:
+                    await ctx.send("Could not determine template name.", ephemeral=True)
+                    return None
+                    
+                key = self.get_embed_key(str(ctx.author.id), embed_name)
+                embed_data = await self.get(key)
+                if embed_data:
+                    embed = self.deserialize_embed(embed_data)
+                    await ctx.send(embed=embed, components=self.get_embed_buttons(embed_name))
+                else:
+                    await ctx.send("Could not load embed template.", ephemeral=True)
+            except Exception as e:
+                await ctx.send(f"Error loading template: {str(e)}", ephemeral=True)
+            return None
+            
         paginator.show_callback_button = True
         paginator.callback = load_template
         await paginator.send(ctx)
@@ -378,4 +428,4 @@ class EmbedExtension(Extension):
     # They don't need to change as they work with the buttons
 
 def setup(bot):
-    EmbedExtension(bot)
+    return EmbedExtension(bot)
