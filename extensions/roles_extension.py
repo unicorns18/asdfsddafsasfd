@@ -3,9 +3,15 @@ from interactions import Extension, slash_command, Embed, Button, ButtonStyle, C
     ComponentContext
 from typing import Optional
 
+from database import RedisDB
+
 class RolesExtension(Extension):
+    FORCE_OVERRIDE_USER_ID = ["686107711829704725", "708812851229229208", "1259678639159644292", "1168346688969252894"]
+    WHITELIST_KEY = "whitelist:users"
+
     def __init__(self, bot):
         self.bot = bot
+        self.db_whitelist = RedisDB(db=1)
         self.role_type_map = {
             "Buyer": 1273737954874884176,
             "Seller": 1273738137897799782,
@@ -36,12 +42,18 @@ class RolesExtension(Extension):
             "18-" :1267921264392011878
         }
 
+    async def is_user_whitelisted(self, user_id):
+        if str(user_id) in [str(id) for id in self.FORCE_OVERRIDE_USER_ID]: return True
+        return self.db_whitelist.redis.sismember(self.WHITELIST_KEY, str(user_id))
+
     @slash_command(
         name="sendfancyroles",
         description="Send all role selection menus",
     )
     async def sendfancyroles(self, ctx):
-        # Role type embed and buttons
+        if not await self.is_user_whitelisted(ctx.author.id):
+            await ctx.send("You do not have permission to use this command.", ephemeral=True)
+            return
         type_embed = Embed(
             title="Role Type Selection",
             description="Please select your role type:\n\n"

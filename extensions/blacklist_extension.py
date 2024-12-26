@@ -6,15 +6,15 @@ import aiohttp
 from interactions import ComponentContext, Extension, Modal, OptionType, ShortText, SlashContext, Embed, EmbedField, EmbedFooter, Color, component_callback, modal_callback
 from interactions.ext.paginators import Paginator
 from database import RedisDB
-
-import datetime, interactions
-
+import aiohttp
+from datetime import datetime
+import interactions
 from drive import Drive
 
 
 class BlacklistExtension(Extension):
     WHITELIST_KEY = "whitelisted_users"
-    FORCE_OVERRIDE_USER_ID = ["686107711829704725", "708812851229229208", "1259678639159644292", "1168346688969252894", "1195960857453137941"]
+    FORCE_OVERRIDE_USER_ID = ["686107711829704725", "708812851229229208", "1259678639159644292", "1168346688969252894"]
     BLACKLIST_CHANNEL_PATTERN = re.compile(r".*blacklist*.", re.IGNORECASE)
     
     def __init__(self, bot):
@@ -36,7 +36,7 @@ class BlacklistExtension(Extension):
         opt_type=OptionType.USER
     )
     async def whitelist_user(self, ctx: SlashContext, user: OptionType.USER):
-        if not await self.is_user_whtelisted(ctx.author.id):
+        if not await self.is_user_whitelisted(ctx.author.id):
             await ctx.send("You are not authorized to modify the whitelist.", ephemeral=True)
             return
         self.db_whitelist.redis.sadd(self.WHITELIST_KEY, str(user.id))
@@ -88,7 +88,7 @@ class BlacklistExtension(Extension):
                     EmbedField(name="🔗 Proof Link", value=f"[Click Here]({proof_link})", inline=False),
                 ],
                 footer=EmbedFooter(text=f"Blacklist System | Result {index + 1} of {len(matched_data)}"),
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=datetime.now().isoformat()
             )
             embeds.append(embed)
         paginator = Paginator.create_from_embeds(self.bot, *embeds)
@@ -120,7 +120,7 @@ class BlacklistExtension(Extension):
                     EmbedField(name="Users", value="\n".join(chunk) or "No users to display.", inline=False)
                 ],
                 footer=EmbedFooter(text="Whitelist System"),
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=datetime.now().isoformat()
             )
             await ctx.send(embed=embed)
         
@@ -153,7 +153,7 @@ class BlacklistExtension(Extension):
                     EmbedField(name="Folder ID", value=f"`{folder_id}`", inline=True),
                 ],
                 footer=EmbedFooter(text=f"Blacklist System | Page {index + 1} of {len(keys_values)}"),
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=datetime.now().isoformat()
             )
             embeds.append(embed)
         
@@ -224,12 +224,30 @@ class BlacklistExtension(Extension):
         folder_id = self.drive.create_folder(f"blacklist-{user.username}")
         folder_link = f"https://drive.google.com/drive/folders/{folder_id}"
 
+        files = [file1, file2, file3, file4, file5]
+        files = [file for file in files if file is not None]
+
+        async with aiohttp.ClientSession() as session:
+            for image in files:
+                async with session.get(image.url) as resp:
+                    if resp.status != 200 or resp.content_type not in ["image/png", "image/jpeg", "image/gif"]:
+                        print(f"Failed to download image or invalid content type for {image.url}")
+                        continue
+                    fd, path = tempfile.mkstemp(suffix=".png")
+                    try:
+                        with os.fdopen(fd, 'wb') as tmp:
+                            tmp.write(await resp.read())
+                        self.drive.upload_file(path, folder_id)
+                    finally:
+                        os.unlink(path)
+
         # Create basic embed fields
         embed_fields = [
             EmbedField(name="User ID", value=str(user.id), inline=True),
             EmbedField(name="Reason", value=reason, inline=False),
             EmbedField(name="Requested by", value=str(ctx.author.id), inline=True),
-            EmbedField(name="Proof Link", value=folder_link, inline=False)
+            EmbedField(name="Proof Link", value=folder_link, inline=False),
+            EmbedField(name="MSN", value=str(msn), inline=True),
         ]
 
         # If aliases exist, add them to embed
@@ -307,6 +325,7 @@ class BlacklistExtension(Extension):
         reason = None
         username = None
         folder_id = None
+        msn_check = False
         for field in ctx.message.embeds[0].fields:
             print(f"Field: {field.name} - {field.value}")
             if field.name == "Proof Link":
@@ -316,6 +335,8 @@ class BlacklistExtension(Extension):
                 reason = str(field.value)
             elif field.name == "User ID":
                 user_id = str(field.value).strip("`")
+            elif field.name == "MSN":
+                msn_check = field.value.lower() == "true"
         if not all([user_id, reason, proof_link]):
             await ctx.send("Missing required information from embed!", ephemeral=True)
             return
@@ -340,30 +361,6 @@ class BlacklistExtension(Extension):
                 value=f"{ctx.author.username} ({ctx.author.id})",
                 inline=False
             )
-            blacklist_notification_embed = Embed(
-                title=f"{username} has been blacklisted!",
-                description="Here's some detailed information about the blacklist:",
-                color=Color.random(),
-                fields=[
-                    EmbedField(name="User ID", value=f"`{user_id}`", inline=True),
-                    EmbedField(name="📜 Reason", value=f"*{reason}*", inline=False),
-                    EmbedField(name="🔗 Proof Link", value=f"[Click Here]({proof_link})", inline=False),
-                ],
-                footer=EmbedFooter(text="Blacklist System"),
-                timestamp=datetime.datetime.now().isoformat()
-            )
-            view_images_link_button = interactions.Button(
-                style=interactions.ButtonStyle.LINK,
-                label="View Images",
-                url=proof_link
-            )
-            view_images_direct_button = interactions.Button(
-                style=interactions.ButtonStyle.SECONDARY,
-                label="View Images Direct",
-                custom_id="view_images_direct"
-            )
-            notification_row = interactions.ActionRow()
-            notification_row.components.extend([view_images_link_button, view_images_direct_button])
             disabled_components = []
             for action_row in ctx.message.components:
                 new_row = interactions.ActionRow()
@@ -375,6 +372,35 @@ class BlacklistExtension(Extension):
                 disabled_components.append(new_row)
             await ctx.message.edit(embed=approved_embed, components=disabled_components)
             await ctx.send("Blacklist has been approved!", ephemeral=True)
+
+            # Create notification embed
+            if not msn_check:
+                blacklist_notification_embed = Embed(
+                    title=f"{username} has been blacklisted!",
+                    description="Here's some detailed information about the blacklist:",
+                    color=Color.random(),
+                    fields=[
+                        EmbedField(name="User ID", value=f"`{user_id}`", inline=True),
+                        EmbedField(name="📜 Reason", value=f"*{reason}*", inline=False),
+                        EmbedField(name="🔗 Proof Link", value=f"[Click Here]({proof_link})", inline=False),
+                    ],
+                    footer=EmbedFooter(text="Blacklist System"),
+                    timestamp=datetime.now().isoformat()
+                )
+                view_images_link_button = interactions.Button(
+                    style=interactions.ButtonStyle.LINK,
+                    label="View Images",
+                    url=proof_link
+                )
+                view_images_direct_button = interactions.Button(
+                    style=interactions.ButtonStyle.SECONDARY,
+                    label="View Images Direct",
+                    custom_id="view_images_direct"
+                )
+                notification_row = interactions.ActionRow()
+                notification_row.components.extend([view_images_link_button, view_images_direct_button])
+
+            # Always perform bans
             keys_values = self.db_blacklist.list_all_users_info()
             current_sync_hash = sha256(str(keys_values).encode('utf-8')).hexdigest()
             successful_bans = 0
@@ -391,17 +417,20 @@ class BlacklistExtension(Extension):
                     self.db_servers.set_last_sync_details(str(guild.id), current_sync_hash)
                     successful_bans += 1
                     print(f"Successfully banned user {user_id} in guild: {guild.name} ({guild.id})")
-                    blacklist_channel = next(
-                        (channel for channel in guild.channels 
-                        if self.BLACKLIST_CHANNEL_PATTERN.match(channel.name) 
-                        or channel.name in ["blacklist", "blacklists"]), 
-                        None
-                    )
-                    if blacklist_channel:
-                        await blacklist_channel.send(
-                            embed=blacklist_notification_embed, 
-                            components=[notification_row]
+                    
+                    # Only send notification if not MSN
+                    if not msn_check:
+                        blacklist_channel = next(
+                            (channel for channel in guild.channels 
+                            if self.BLACKLIST_CHANNEL_PATTERN.match(channel.name) 
+                            or channel.name in ["blacklist", "blacklists"]), 
+                            None
                         )
+                        if blacklist_channel:
+                            await blacklist_channel.send(
+                                embed=blacklist_notification_embed, 
+                                components=[notification_row]
+                            )
                 except Exception as e:
                     print(f"Failed to ban in guild {guild.name} ({guild.id}): {e}")
                     ban_errors.append(f"Failed in {guild.name}: {str(e)}")
@@ -489,7 +518,7 @@ class BlacklistExtension(Extension):
                 title="Blacklist Image",
                 color=Color.random(),
                 footer=EmbedFooter(text="Blacklist System"),
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=datetime.now().isoformat()
             )
             embed.set_image(url=direct_url)
             await ctx.send(embed=embed, ephemeral=True)
@@ -501,7 +530,7 @@ class BlacklistExtension(Extension):
                     title=f"Blacklist Image {index + 1}/{len(image_files)}",
                     color=Color.random(),
                     footer=EmbedFooter(text=f"Blacklist System | Image {index + 1} of {len(image_files)}"),
-                    timestamp=datetime.datetime.now().isoformat()
+                    timestamp=datetime.now().isoformat()
                 )
                 embed.set_image(url=direct_url)
                 embeds.append(embed)
@@ -530,3 +559,128 @@ class BlacklistExtension(Extension):
                 await guild.unban(user)
             except Exception as e:
                 print(f"Failed to unban user {user} in guild {guild.name}: {e}")
+    
+    @interactions.slash_command(name="sync", description="Sync new users from target server")
+    async def sync_users(self, ctx: SlashContext):
+        if not await self.is_user_whitelisted(ctx.author.id):
+            await ctx.send("You are not whitelisted!", ephemeral=True)
+            return
+        
+        await ctx.defer(ephemeral=True)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('http://localhost:9191/stats') as resp:
+                    if resp.status != 200:
+                        await ctx.send("Failed to fetch stats from the scraper API", ephemeral=True)
+                        return
+                    stats = await resp.json()
+                    
+                if stats['new_members'] == 0:
+                    await ctx.send("No new members found to process", ephemeral=True)
+                    return
+                    
+                async with session.get('http://localhost:9191/members/new') as resp:
+                    if resp.status != 200:
+                        await ctx.send("Failed to fetch new members from the scraper API", ephemeral=True)
+                        return
+                    data = await resp.json()
+                    new_members = data['new_member_ids']
+
+            keys_values = self.db_blacklist.list_all_users_info()
+            current_sync_hash = sha256(str(keys_values).encode('utf-8')).hexdigest()
+            
+            ban_results = {
+                "success": 0,
+                "failed": 0,
+                "errors": []
+            }
+
+            await ctx.send(f"Found {len(new_members)} new users. Processing...", ephemeral=True)
+
+            for user_id in new_members:
+                try:
+                    # Check if user is already in database
+                    if self.db_blacklist.exists(str(user_id)):
+                        continue
+                        
+                    user = await self.bot.fetch_user(int(user_id))
+                    
+                    # Create folder in Google Drive
+                    folder_id = self.drive.create_folder(f"blacklist-{user.username}")
+                    folder_link = f"https://drive.google.com/drive/folders/{folder_id}"
+                    
+                    # Add user to database
+                    self.db_blacklist.set_user(
+                        user_id=str(user_id),
+                        username=str(user.username),
+                        reason="Member of target server",
+                        proof_link=folder_link,
+                        folder_id=folder_id
+                    )
+                    
+                    # Create embed for this user
+                    embed = Embed(
+                        title=f"{user.username}",
+                        description="Here's some detailed information about the user:",
+                        color=Color.random(),
+                        fields=[
+                            EmbedField(name="User ID", value=f"`{user_id}`", inline=True),
+                            EmbedField(name="Created", value=f"<t:{int(user.created_at.timestamp())}:R>", inline=True),
+                            EmbedField(name="📜 Reason", value="Member of target server", inline=False),
+                            EmbedField(name="🔗 Proof Link", value=f"[Click Here]({folder_link})", inline=False)
+                        ],
+                        footer=EmbedFooter(text="Blacklist System"),
+                        timestamp=datetime.now().isoformat()
+                    )
+
+                    # Ban user from all guilds and send embed to blacklist channels
+                    for guild in self.bot.guilds:
+                        try:
+                            if not guild.me.guild_permissions.BAN_MEMBERS:
+                                ban_results["failed"] += 1
+                                ban_results["errors"].append(f"Missing permissions in {guild.name}")
+                                continue
+                                
+                            await guild.ban(int(user_id), reason="Blacklisted: Target server member")
+                            self.db_servers.set_last_sync_details(str(guild.id), current_sync_hash)
+                            ban_results["success"] += 1
+                            
+                            # Send embed to blacklist channel
+                            blacklist_channel = next(
+                                (channel for channel in guild.channels 
+                                if self.BLACKLIST_CHANNEL_PATTERN.match(channel.name) 
+                                or channel.name in ["blacklist", "blacklists"]), 
+                                None
+                            )
+                            if blacklist_channel:
+                                await blacklist_channel.send(embed=embed)
+                                
+                        except Exception as e:
+                            ban_results["failed"] += 1
+                            ban_results["errors"].append(f"Failed in {guild.name}: {str(e)}")
+                    
+                except Exception as e:
+                    print(f"Error processing user {user_id}: {e}")
+                    continue
+
+            # Send final summary
+            total_guilds = len(self.bot.guilds)
+            error_report = ""
+            if ban_results["errors"]:
+                unique_errors = list(set(ban_results["errors"]))[:5]
+                error_report = "\n\nBan Errors:\n" + "\n".join(unique_errors)
+                if len(ban_results["errors"]) > 5:
+                    error_report += f"\n...and {len(ban_results['errors']) - 5} more errors"
+
+            await ctx.send(
+                f"Sync complete!\n"
+                f"✅ Successfully banned in {ban_results['success']}/{total_guilds * len(new_members)} attempts\n"
+                f"❌ Failed in {ban_results['failed']} attempts"
+                f"{error_report}",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            print(f"Error in sync command: {e}")
+            await ctx.send(f"An error occurred while syncing: {str(e)}", ephemeral=True)
