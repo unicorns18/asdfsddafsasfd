@@ -3,7 +3,7 @@ import os
 import re
 import tempfile
 import aiohttp
-from interactions import ComponentContext, Extension, Modal, OptionType, ShortText, SlashContext, Embed, EmbedField, EmbedFooter, Color, component_callback, modal_callback
+from interactions import Extension, Modal, OptionType, ShortText, SlashContext, Embed, EmbedField, EmbedFooter, Color, component_callback, modal_callback
 from interactions.ext.paginators import Paginator
 from database import RedisDB
 import aiohttp
@@ -66,13 +66,12 @@ class BlacklistExtension(Extension):
         required=True,
         opt_type=OptionType.STRING
     )
-    async def search_blacklist(self, ctx: SlashContext, pattern: str):        
-        matched_data = self.db_blacklist.search_users(pattern)
-        
+    async def search_blacklist(self, ctx: SlashContext, pattern: str):
+        print(f"Searching for pattern: {pattern}")
+        matched_data = self.db_blacklist.search_users(pattern)        
         if not matched_data:
             await ctx.send(f"No blacklisted user found with the pattern `{pattern}`", ephemeral=True)
             return
-        
         embeds = []
         for index, (user_id, user_info) in enumerate(matched_data):
             username = user_info["username"]

@@ -18,6 +18,8 @@ class LoggerExtension(Extension):
         self.bot = bot
         self.log_channels = {}  # Cache for logging channels
         self.attachment_cache = {}  # Cache for attachment data
+        # Regex pattern to match 'nsfw' but not 'sfw'
+        self.exclude_pattern = re.compile(r'(?<!s)nsfw', re.IGNORECASE)
 
     def clean_name(self, name):
         return re.sub(r'[^\w\s-]', '', name).strip().replace(' ', '_')
@@ -123,6 +125,11 @@ class LoggerExtension(Extension):
         # Get channel details
         channel_id = str(message._channel_id)
         channel_name = self.clean_name(message.channel.name)
+        
+        # Skip if channel name contains 'nsfw' but not 'sfw'
+        if self.exclude_pattern.search(message.channel.name):
+            return
+            
         author_id = str(message.author.id)
         
         # Server logging
@@ -155,34 +162,34 @@ class LoggerExtension(Extension):
                 
                 # Handle attachments
                 if message.attachments:
-                    # Set the first image as the embed image
+                    # Set the first image as the embed image if it's an image
                     first_attachment = message.attachments[0]
                     if first_attachment.content_type and "image" in first_attachment.content_type:
                         embed.set_image(url=first_attachment.url)
                     
-                    # List all attachments in a field
+                    # List all attachments in the description
                     attachment_list = []
                     for idx, attachment in enumerate(message.attachments, 1):
                         attachment_list.append(f"{idx}. [{attachment.filename}]({attachment.url})")
                     
-                    if attachment_list:
-                        embed.add_field(
-                            name="Attachments",
-                            value="\n".join(attachment_list),
-                            inline=False
-                        )
+                    # Add attachments to description
+                    current_desc = embed.description if embed.description and embed.description != "*No text content*" else ""
+                    attachment_section = "\n\n**Attachments:**\n" + "\n".join(attachment_list)
+                    embed.description = current_desc + attachment_section
 
-                    # Add View Images button if there are multiple image attachments
-                    image_attachments = [att for att in message.attachments if att.content_type and "image" in att.content_type]
-                    if len(image_attachments) > 1:
+                    # Add View Images button if there are image attachments
+                    image_attachments = [
+                        {"url": att.url, "filename": att.filename}
+                        for att in message.attachments 
+                        if att.content_type and "image" in att.content_type
+                    ]
+                    
+                    if image_attachments:
                         cache_key = str(message.id)
-                        self.attachment_cache[cache_key] = [
-                            {"url": att.url, "filename": att.filename}
-                            for att in image_attachments
-                        ]
+                        self.attachment_cache[cache_key] = image_attachments
                         view_images_button = Button(
                             style=ButtonStyle.SECONDARY,
-                            label="View Images",
+                            label=f"View Images ({len(image_attachments)})",
                             custom_id=f"view_log_images:{cache_key}"
                         )
                         components.append(view_images_button)
@@ -196,30 +203,38 @@ class LoggerExtension(Extension):
 
     @interactions.component_callback(re.compile(r"view_log_images:(\d+)"))
     async def view_log_images(self, ctx: ComponentContext):
-        cache_key = ctx.custom_id.split(":")[1]
-        
-        if cache_key not in self.attachment_cache:
-            await ctx.send("Could not find the image attachments.", ephemeral=True)
-            return
+        try:
+            cache_key = ctx.custom_id.split(":")[1]
             
-        attachments = self.attachment_cache[cache_key]
-        if not attachments:
-            await ctx.send("No image attachments found.", ephemeral=True)
-            return
+            if cache_key not in self.attachment_cache:
+                await ctx.send("Could not find the image attachments.", ephemeral=True)
+                return
+                
+            attachments = self.attachment_cache[cache_key]
+            if not attachments:
+                await ctx.send("No image attachments found.", ephemeral=True)
+                return
+                
+            embeds = []
+            for idx, attachment in enumerate(attachments, 1):
+                embed = Embed(
+                    title=f"Image {idx}/{len(attachments)}",
+                    color=Color.random(),
+                    footer=EmbedFooter(text=f"Attachment: {attachment['filename']}"),
+                    timestamp=datetime.now().isoformat()
+                )
+                embed.set_image(url=attachment['url'])
+                embeds.append(embed)
+                
+            paginator = Paginator.create_from_embeds(self.bot, *embeds)
+            await paginator.send(ctx, ephemeral=True)
             
-        embeds = []
-        for idx, attachment in enumerate(attachments, 1):
-            embed = Embed(
-                title=f"Image {idx}/{len(attachments)}",
-                color=Color.random(),
-                footer=EmbedFooter(text=f"Attachment: {attachment['filename']}"),
-                timestamp=datetime.now().isoformat()
-            )
-            embed.set_image(url=attachment['url'])
-            embeds.append(embed)
+        except Exception as e:
+            print(f"Error in view_log_images: {e}")
+            await ctx.send("An error occurred while trying to view the images.", ephemeral=True)
             
-        paginator = Paginator.create_from_embeds(self.bot, *embeds)
-        await paginator.send(ctx, ephemeral=True)
-        
         # Clean up cache after sending
-        del self.attachment_cache[cache_key]
+        try:
+            del self.attachment_cache[cache_key]
+        except:
+            pass
