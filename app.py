@@ -9,7 +9,7 @@ load_dotenv()
 
 logger = logutils.CustomLogger(__name__)
 
-DEBUG = False
+DEBUG = True
 TOKEN = os.getenv("MAIN_BOT_TOKEN")
 DEBUG_TOKEN = os.getenv("DEBUG_BOT_TOKEN")
 
@@ -43,3 +43,4 @@ if __name__ == '__main__':
             logger.error(f"Failed to load extension {extension}.", exc_info=e)
 
     client.start()
+

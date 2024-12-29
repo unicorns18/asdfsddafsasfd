@@ -194,8 +194,24 @@ class EmbedExtension(Extension):
         return f"embed:{user_id}:{name}"
 
     @slash_command(
-        name="embed_create",
-        description="Create a new embed (like Mimu's /embed create)."
+        name="embed",
+        description="Create and manage embed messages"
+    )
+    async def embed(self, ctx: SlashContext):
+        """Base command - shows help text"""
+        help_text = (
+            "Available subcommands:\n"
+            "- /embed create - Create a new embed\n"
+            "- /embed load - Load a saved embed template\n"
+            "- /embed list - List all saved embed templates\n"
+            "- /embed flush - Delete all saved embed templates\n"
+            "- /embed edit - Edit an existing embed template"
+        )
+        await ctx.send(help_text)
+
+    @embed.subcommand(
+        sub_cmd_name="create",
+        sub_cmd_description="Create a new embed"
     )
     @slash_option(
         name="name",
@@ -244,9 +260,9 @@ class EmbedExtension(Extension):
             components=buttons
         )
     
-    @slash_command(
-        name="embed_load",
-        description="Load a saved embed template"
+    @embed.subcommand(
+        sub_cmd_name="load",
+        sub_cmd_description="Load a saved embed template"
     )
     @slash_option(
         name="name",
@@ -268,9 +284,9 @@ class EmbedExtension(Extension):
         buttons = self.get_embed_buttons(name)
         await ctx.send(embed=embed, components=buttons)
 
-    @slash_command(
-        name="embed_list", 
-        description="List all saved embed templates",
+    @embed.subcommand(
+        sub_cmd_name="list",
+        sub_cmd_description="List all saved embed templates"
     )
     async def embed_list(self, ctx: SlashContext):
         if not await self.is_user_whitelisted(ctx.author.id):
@@ -310,9 +326,9 @@ class EmbedExtension(Extension):
         paginator.callback = load_template
         await paginator.send(ctx)
 
-    @slash_command(
-        name="embed_flush",
-        description="Delete all saved embed templates"
+    @embed.subcommand(
+        sub_cmd_name="flush",
+        sub_cmd_description="Delete all saved embed templates"
     )
     async def embed_flush(self, ctx: SlashContext):
         if not await self.is_user_whitelisted(ctx.author.id):
@@ -327,9 +343,9 @@ class EmbedExtension(Extension):
             self.db.redis.delete(key)
         await ctx.send(f"Successfully deleted {len(embed_keys)} embed templates.", ephemeral=True)
 
-    @slash_command(
-        name="embed_edit",
-        description="Edit an existing embed template"
+    @embed.subcommand(
+        sub_cmd_name="edit",
+        sub_cmd_description="Edit an existing embed template"
     )
     @slash_option(
         name="name",
